@@ -39,6 +39,7 @@ class CheckIn(models.Model):
 
     # 打卡内容
     remark = models.TextField('打卡备注', blank=True)
+    check_in_date = models.DateField('打卡日期', db_index=True, default=timezone.localdate)
 
     # 定位信息（支持地图打卡）
     location_name = models.CharField('位置名称', max_length=200, blank=True, default='未获取位置')
@@ -74,6 +75,7 @@ class CheckIn(models.Model):
         verbose_name = '打卡记录'
         verbose_name_plural = '打卡记录'
         ordering = ['-created_at']
+        unique_together = [['user', 'activity', 'check_in_date']]
         indexes = [
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['activity', 'status']),
@@ -81,7 +83,12 @@ class CheckIn(models.Model):
         
 
     def __str__(self):
-        return f"{self.user.username} - {self.activity.title} - {self.created_at.strftime('%Y-%m-%d')}"
+        return f"{self.user.username} - {self.activity.title} - {self.check_in_date}"
+
+    def save(self, *args, **kwargs):
+        if not self.check_in_date:
+            self.check_in_date = timezone.localdate()
+        super().save(*args, **kwargs)
 
     def approve(self, reviewer=None, note=''):
         """审核通过 + 发放积分 + 更新用户统计（核心逻辑）"""
@@ -90,15 +97,21 @@ class CheckIn(models.Model):
         self.review_note = note
         self.points_earned = self.activity.points   # 从活动设置获取积分
 
-        # 更新用户积分和打卡统计（按论文User模型字段）
+        # 更新用户积分和打卡统计（按当前User模型字段）
         self.user.points += self.points_earned
-        self.user.total_points += self.points_earned
-        self.user.checkin_count += 1
-        self.user.save(update_fields=['points', 'total_points', 'checkin_count'])
+        self.user.total_checkins += 1
+        self.user.save(update_fields=['points', 'total_checkins'])
 
         # 更新报名状态
         self.registration.status = 'completed'
         self.registration.save(update_fields=['status'])
+
+        PointRecord.objects.create(
+            user=self.user,
+            points=self.points_earned,
+            reason=f'打卡奖励 - {self.activity.title}',
+            related_checkin=self
+        )
 
         self.save()
 

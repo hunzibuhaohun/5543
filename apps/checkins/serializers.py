@@ -15,12 +15,18 @@ class CheckInSerializer(serializers.ModelSerializer):
     """打卡序列化器"""
     photos = CheckInPhotoSerializer(many=True, read_only=True)
     activity_title = serializers.CharField(source='activity.title', read_only=True)
+    content = serializers.CharField(source='remark', required=False, allow_blank=False)
 
     class Meta:
         model = CheckIn
         fields = [
-            'id', 'activity', 'activity_title', 'remark',
+            'id', 'activity', 'activity_title', 'content', 'remark',
             'latitude', 'longitude', 'accuracy', 'location_name',
-            'status', 'points_earned', 'created_at', 'photos'
+            'status', 'points_earned', 'check_in_date', 'created_at', 'photos'
         ]
-        read_only_fields = ['status', 'points_earned', 'created_at']
+        read_only_fields = ['status', 'points_earned', 'check_in_date', 'created_at', 'remark']
+
+        def validate(self, attrs):
+            if not str(attrs.get('remark', '')).strip():
+                raise serializers.ValidationError({'content': '打卡内容不能为空'})
+            return attrs

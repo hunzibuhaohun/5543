@@ -226,6 +226,7 @@ class User(AbstractUser):
 
     def add_points(self, points, description=''):
         """添加积分"""
+        points = int(points)
         self.points += points
         self.save(update_fields=['points'])
 
@@ -238,6 +239,17 @@ class User(AbstractUser):
 
         # 检查等级提升
         self.check_level_up()
+        # 与打卡积分记录保持一致（可选依赖，避免循环导入）
+        try:
+            from apps.checkins.models import PointRecord
+            PointRecord.objects.create(
+                user=self,
+                points=points,
+                reason=description or '积分变动'
+            )
+        except Exception:
+            # PointRecord 不可用时不影响主流程
+            pass
 
     def check_level_up(self):
         """检查是否升级"""
@@ -337,6 +349,16 @@ class User(AbstractUser):
         """增加打卡计数"""
         self.total_checkins += 1
         self.save(update_fields=['total_checkins'])
+
+    @property
+    def total_points(self):
+        """兼容历史代码：总积分映射为当前积分字段。"""
+        return self.points
+
+    @property
+    def continuous_days(self):
+        """兼容历史代码：连续打卡天数映射为 streak_days。"""
+        return self.streak_days
 
     def increment_activity_joined(self):
         """增加参与活动计数"""

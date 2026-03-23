@@ -10,6 +10,9 @@ from django.shortcuts import get_object_or_404
 from apps.users.models import User
 from apps.activities.models import Activity, ActivityRegistration
 from apps.checkins.models import CheckIn
+from apps.checkins.utils import calculate_continuous_days, award_points
+from django.db import transaction
+from django.utils import timezone
 from apps.social.models import Moment
 from .serializers import (
     UserSerializer, ActivityListSerializer, ActivityDetailSerializer,
@@ -82,7 +85,45 @@ class CheckInViewSet(viewsets.ModelViewSet):
         return CheckIn.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        activity = serializer.validated_data['activity']
+        today = timezone.localdate()
+
+        if CheckIn.objects.filter(
+                user=self.request.user,
+                activity=activity,
+                check_in_date=today
+        ).exists():
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': '今天已完成该活动打卡，请勿重复提交'})
+
+        with transaction.atomic():
+            registration, _ = ActivityRegistration.objects.get_or_create(
+                user=self.request.user,
+                activity=activity,
+                defaults={'status': 'registered'}
+            )
+
+            checkin = serializer.save(
+                user=self.request.user,
+                registration=registration,
+                check_in_date=today,
+                status='approved'
+            )
+
+            streak_days = calculate_continuous_days(self.request.user, activity)
+            points = award_points(
+                self.request.user,
+                activity=activity,
+                streak_days=streak_days,
+                related_checkin=checkin
+            )
+
+            checkin.points_earned = points
+            checkin.save(update_fields=['points_earned'])
+
+            registration.status = 'completed'
+            registration.checked_in_at = timezone.now()
+            registration.save(update_fields=['status', 'checked_in_at'])
 
 
 class MomentViewSet(viewsets.ModelViewSet):

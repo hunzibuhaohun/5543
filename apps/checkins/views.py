@@ -13,7 +13,7 @@ from django.core.paginator import Paginator
 from django.utils import timezone
 from django.db import transaction
 
-from .models import CheckIn, CheckInPhoto, PointRecord
+from .models import CheckIn, CheckInPhoto
 from .forms import CheckInForm
 from .utils import verify_location, calculate_continuous_days, award_points
 from apps.activities.models import Activity, ActivityRegistration
@@ -71,7 +71,7 @@ def checkin_view(request):
             if CheckIn.objects.filter(
                 user=request.user,
                 activity=activity,
-                created_at__date=today
+                check_in_date=today
             ).exists():
                 messages.warning(request, '您今天已经打过卡了！')
                 return redirect('checkins:history')
@@ -82,6 +82,7 @@ def checkin_view(request):
                 checkin.activity = activity
                 checkin.registration = registration
                 checkin.status = 'approved'  # 直接设为已通过
+                checkin.check_in_date = today
                 checkin.save()
 
                 # 保存照片
@@ -91,12 +92,10 @@ def checkin_view(request):
 
                 # 连续打卡 + 积分发放
                 streak = calculate_continuous_days(request.user, activity)
-                points = award_points(request.user, activity, streak)
-
-                PointRecord.objects.create(
-                    user=request.user,
-                    points=points,
-                    reason=f'打卡奖励 - {activity.title}',
+                points = award_points(
+                    request.user,
+                    activity=activity,
+                    streak_days=streak,
                     related_checkin=checkin
                 )
 
@@ -226,4 +225,26 @@ class CheckInViewSet(viewsets.ModelViewSet):
         return CheckIn.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        activity = serializer.validated_data['activity']
+        today = timezone.localdate()
+
+        if CheckIn.objects.filter(
+                user=self.request.user,
+                activity=activity,
+                check_in_date=today
+        ).exists():
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': '今天已完成该活动打卡，请勿重复提交'})
+
+        registration, _ = ActivityRegistration.objects.get_or_create(
+            user=self.request.user,
+            activity=activity,
+            defaults={'status': 'registered'}
+        )
+
+        serializer.save(
+            user=self.request.user,
+            registration=registration,
+            check_in_date=today,
+            status='approved'
+        )

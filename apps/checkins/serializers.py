@@ -15,7 +15,12 @@ class CheckInSerializer(serializers.ModelSerializer):
     """打卡序列化器"""
     photos = CheckInPhotoSerializer(many=True, read_only=True)
     activity_title = serializers.CharField(source='activity.title', read_only=True)
-    content = serializers.CharField(source='remark', required=False, allow_blank=False)
+    content = serializers.CharField(
+        source='remark',
+        required=True,
+        allow_blank=False,
+        trim_whitespace=True
+    )
 
     class Meta:
         model = CheckIn
@@ -24,7 +29,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             'latitude', 'longitude', 'accuracy', 'location_name',
             'status', 'points_earned', 'check_in_date', 'created_at', 'photos'
         ]
-        read_only_fields = ['status', 'points_earned', 'check_in_date', 'created_at', 'remark']
+        read_only_fields = ['status', 'points_earned', 'check_in_date', 'created_at']
 
     def validate(self, attrs):
         if not str(attrs.get('remark', '')).strip():

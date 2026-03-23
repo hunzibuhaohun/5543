@@ -76,15 +76,20 @@ class CheckInSerializer(serializers.ModelSerializer):
     activity_detail = ActivityListSerializer(source='activity', read_only=True)
     user = UserSerializer(read_only=True)
     photos = serializers.SerializerMethodField()
-    content = serializers.CharField(source='remark', required=False, allow_blank=False)
+    content = serializers.CharField(
+        source='remark',
+        required=True,
+        allow_blank=False,
+        trim_whitespace=True
+    )
     
     class Meta:
         model = CheckIn
         fields = [
             'id', 'user', 'activity', 'activity_detail', 'content', 'remark',
-            'location_name', 'status', 'points_earned', 'created_at', 'photos'
+            'location_name', 'status', 'points_earned', 'check_in_date', 'created_at', 'photos'
         ]
-        read_only_fields = ['status', 'points_earned', 'created_at', 'remark']
+        read_only_fields = ['status', 'points_earned', 'check_in_date', 'created_at']
     
     def get_photos(self, obj):
         return [photo.image.url for photo in obj.photos.all()]

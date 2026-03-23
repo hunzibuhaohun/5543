@@ -87,13 +87,13 @@ class CheckInViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         activity = serializer.validated_data['activity']
         today = timezone.localdate()
+        from rest_framework.exceptions import ValidationError
 
         if CheckIn.objects.filter(
             user=self.request.user,
             activity=activity,
             check_in_date=today
         ).exists():
-            from rest_framework.exceptions import ValidationError
             raise ValidationError({'detail': '今天已完成该活动打卡，请勿重复提交'})
 
         with transaction.atomic():
@@ -102,6 +102,12 @@ class CheckInViewSet(viewsets.ModelViewSet):
                 activity=activity,
                 defaults={'status': 'registered'}
             )
+
+            if CheckIn.objects.filter(registration=registration).exists():
+                raise ValidationError({'detail': '该活动已完成过打卡，不能重复提交'})
+
+            if registration.status == 'completed':
+                raise ValidationError({'detail': '该活动报名记录已完成，无法再次打卡'})
 
             checkin = serializer.save(
                 user=self.request.user,

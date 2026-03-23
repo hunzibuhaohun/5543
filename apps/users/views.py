@@ -245,7 +245,7 @@ def checkin_history_view(request):
     # 统计
     total_checkins = user.checkins.count()
     this_month = user.checkins.filter(created_at__month=today.month, created_at__year=today.year).count()
-    total_points = sum(c.points for c in user.checkins.all()) if hasattr(user.checkins.first(), 'points') else total_checkins * 10
+    total_points = sum(c.points_earned for c in user.checkins.all())
 
     context = {
         'checkins': checkins,
@@ -269,7 +269,7 @@ def points_view(request):
     for checkin in checkins:
         point_history.append({
             'description': f'打卡：{checkin.activity.title}',
-            'amount': getattr(checkin, 'points', 10),
+            'amount': checkin.points_earned or 0,
             'created_at': checkin.created_at
         })
 

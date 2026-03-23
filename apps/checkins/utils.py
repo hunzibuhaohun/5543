@@ -3,9 +3,10 @@
 """
 import math
 import requests
+from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
-from .models import CheckIn, PointRecord  # 导入需要的模型（确保路径正确）
+from .models import CheckIn, PointRecord
 
 
 def calculate_distance(lat1, lng1, lat2, lng2):
@@ -91,67 +92,63 @@ def calculate_continuous_days(user, activity=None):
     Returns:
         int: 连续打卡天数
     """
-    # 构建查询条件：当前用户的有效打卡记录，按时间倒序排列
-    query_kwargs = {'user': user, 'is_valid': True}  # 假设CheckIn模型有is_valid字段标记有效打卡
+    # 基于已通过审核的打卡记录计算连续天数
+    query_kwargs = {'user': user, 'status': 'approved'}
     if activity:
         query_kwargs['activity'] = activity
 
-    checkins = CheckIn.objects.filter(**query_kwargs).order_by('-checkin_time')
-    if not checkins:
-        return 0  # 无打卡记录，连续天数为0
+    checkin_dates = list(
+        CheckIn.objects.filter(**query_kwargs)
+        .values_list('check_in_date', flat=True)
+        .distinct()
+        .order_by('-check_in_date')
+    )
+    if not checkin_dates:
+        return 0
 
-    continuous_days = 1
+    continuous_days = 0
     today = timezone.now().date()
-    last_checkin_date = checkins[0].checkin_time.date()
+    last_checkin_date = checkin_dates[0]
 
-    # 检查最新打卡是否是今天/昨天（处理跨天逻辑）
+    # 最新打卡若不在今天/昨天，视为已中断
     if last_checkin_date != today and (today - last_checkin_date).days > 1:
         return 0
 
-    # 遍历历史打卡记录，计算连续天数
-    for checkin in checkins[1:]:
-        current_date = checkin.checkin_time.date()
-        # 相邻两条记录间隔1天则连续，否则中断
-        if (last_checkin_date - current_date).days == 1:
-            continuous_days += 1
-            last_checkin_date = current_date
-        else:
-            break
+    # 从最近一天往前递减统计连续天数
+    cursor = last_checkin_date
+    checkin_date_set = set(checkin_dates)
+    while cursor in checkin_date_set:
+        continuous_days += 1
+        cursor -= timedelta(days=1)
+
+    # 兼容旧逻辑：若最新打卡是昨天/今天且只有一天记录，返回1
+    if continuous_days == 0 and checkin_dates:
+        continuous_days = 1
 
     return continuous_days
 
 
-def award_points(user, points, reason, activity=None):
+def award_points(user, activity, streak_days=1, related_checkin=None):
     """
-    给用户发放积分并记录积分流水
-
-    Args:
-        user: 用户对象
-        points: 积分数量（整数，正数为增加，负数为扣除）
-        reason: 积分变动原因（字符串）
-        activity: 可选，关联的活动对象
-
-    Returns:
-        PointRecord: 创建的积分记录对象
+    给用户发放打卡积分并记录积分流水。
+    - 基础分：activity.points
+    - 连续奖励：连续每满7天 +5 分（最多 +20）
+    返回：本次发放积分（int）
     """
-    # 确保积分是整数，避免非数字传入
-    try:
-        points = int(points)
-    except (ValueError, TypeError):
-        raise ValueError("积分数量必须是整数")
+    base_points = int(getattr(activity, 'points', 10) or 10)
+    streak_days = int(streak_days or 0)
+    bonus = min((streak_days // 7) * 5, 20)
+    final_points = base_points + bonus
 
-    # 创建积分记录（假设PointRecord模型有对应字段）
-    point_record = PointRecord.objects.create(
+    user.points += final_points
+    user.total_checkins += 1
+    user.save(update_fields=['points', 'total_checkins'])
+
+    PointRecord.objects.create(
         user=user,
-        points=points,
-        reason=reason,
-        activity=activity,
-        create_time=timezone.now()
+        points=final_points,
+        reason=f'打卡奖励 - {activity.title}',
+        related_checkin=related_checkin
     )
 
-    # 可选：如果User模型有积分总数字段，同步更新
-    # if hasattr(user, 'total_points'):
-    #     user.total_points += points
-    #     user.save(update_fields=['total_points'])
-
-    return point_record
+    return final_points

@@ -69,17 +69,34 @@ class ActivityRegistrationSerializer(serializers.ModelSerializer):
 
 class CheckInSerializer(serializers.ModelSerializer):
     """打卡记录序列化器"""
-    activity = ActivityListSerializer(read_only=True)
+    activity = serializers.PrimaryKeyRelatedField(
+        queryset=Activity.objects.all(),
+        write_only=True
+    )
+    activity_detail = ActivityListSerializer(source='activity', read_only=True)
     user = UserSerializer(read_only=True)
     photos = serializers.SerializerMethodField()
+    content = serializers.CharField(source='remark', required=False, allow_blank=False)
     
     class Meta:
         model = CheckIn
-        fields = ['id', 'user', 'activity', 'remark', 'location_name',
-                  'status', 'points_earned', 'created_at', 'photos']
+        fields = [
+            'id', 'user', 'activity', 'activity_detail', 'content', 'remark',
+            'location_name', 'status', 'points_earned', 'created_at', 'photos'
+        ]
+        read_only_fields = ['status', 'points_earned', 'created_at', 'remark']
     
     def get_photos(self, obj):
         return [photo.image.url for photo in obj.photos.all()]
+
+    def validate(self, attrs):
+        """
+        兼容 content/remark 两种入参，并做基础非空校验。
+        """
+        remark = attrs.get('remark', '')
+        if not str(remark).strip():
+            raise serializers.ValidationError({'content': '打卡内容不能为空'})
+        return attrs
 
 
 class MomentSerializer(serializers.ModelSerializer):

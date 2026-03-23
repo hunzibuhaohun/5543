@@ -79,7 +79,7 @@ class CheckInForm(forms.ModelForm):
         if CheckIn.objects.filter(
             user=self.user,
             activity=activity,
-            created_at__date=timezone.now().date()
+            check_in_date=timezone.now().date()
         ).exists():
             raise forms.ValidationError('您今天已经打过卡了')
 
